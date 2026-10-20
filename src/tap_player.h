@@ -17,8 +17,11 @@ namespace player {
 enum class State : uint8_t { Idle, Playing, Paused, Done };
 
 // --- core 0 ---
-bool open(const char* path);  // scan blocks and start playing
-void togglePause();
+// Read a TAP file's block list without playing it.
+bool scan(const char* path, std::vector<TapBlock>& out);
+bool open(const char* path, int startBlock = 0);  // scan blocks and start playing
+bool seek(int block);         // restart the open (or just finished) file at a block
+void togglePause();           // resuming inside a block restarts that block
 void stop();                  // abort playback and close the file
 void service();               // call from loop(): refills the buffer, detects end
 bool busy();                  // true while a file is open or the engine runs

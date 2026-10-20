@@ -5,8 +5,6 @@ namespace {
 // This HW-040 moves half a quadrature cycle per detent (each pin toggles once).
 // If one click moves the cursor two places, set 4; if it takes two clicks, set 1.
 constexpr int COUNTS_PER_DETENT = 2;
-// Flip if turning clockwise moves the selection up.
-constexpr bool REVERSE = false;
 
 constexpr uint32_t DEBOUNCE_MS = 20;
 constexpr uint32_t LONG_PRESS_MS = 700;
@@ -42,7 +40,7 @@ int Encoder::takeSteps() {
     int32_t detents = encCount / COUNTS_PER_DETENT;
     encCount -= detents * COUNTS_PER_DETENT;
     interrupts();
-    return REVERSE ? -detents : detents;
+    return reversed_ ? -detents : detents;
 }
 
 int32_t Encoder::rawCount() { return encCount; }

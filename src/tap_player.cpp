@@ -3,6 +3,7 @@
 #include <FatFS.h>
 
 #include "pins.h"
+#include "settings.h"
 #include "spsc_ring.h"
 #include "tape_out.h"
 
@@ -19,7 +20,6 @@ constexpr uint32_t PILOT_HEADER = 8063;
 constexpr uint32_t PILOT_DATA = 3223;
 constexpr uint32_t T_PER_MS = tape_out::CLOCK_HZ / 1000;
 constexpr uint32_t LEAD_IN_MS = 500;
-constexpr uint32_t BLOCK_PAUSE_MS = 1000;
 constexpr size_t MAX_BLOCKS = 256;
 
 SpscRing<uint8_t, 4096> ring;
@@ -32,24 +32,28 @@ volatile bool paused = false;
 volatile bool eof = false;
 volatile uint32_t consumed = 0;
 volatile int32_t curBlock = -1;
+volatile int32_t firstBlock = 0;
+volatile bool inBlock = false;  // between the start of a pilot and the last bit
 
 // Core 0 only.
 File file;
 bool isOpen = false;
 bool finished = false;
+String openPath;
 uint32_t size = 0;
 std::vector<TapBlock> blockList;
 
 // Core 1 only: level of the next pulse.
 bool level = true;
 
-void scanBlocks() {
-    blockList.clear();
+void scanBlocks(File& f, std::vector<TapBlock>& list) {
+    list.clear();
+    uint32_t fileLen = f.size();
     uint32_t pos = 0;
-    while (pos + 2 <= size && blockList.size() < MAX_BLOCKS) {
-        file.seek(pos);
+    while (pos + 2 <= fileLen && list.size() < MAX_BLOCKS) {
+        f.seek(pos);
         uint8_t hdr[14];  // len(2) + flag + type + name(10)
-        int got = file.read(hdr, sizeof hdr);
+        int got = f.read(hdr, sizeof hdr);
         if (got < 2) break;
         TapBlock b = {};
         b.offset = pos;
@@ -61,7 +65,7 @@ void scanBlocks() {
             for (int i = 0; i < 10; i++)
                 if (b.name[i] < 32 || b.name[i] > 126) b.name[i] = '?';
         }
-        if (b.length) blockList.push_back(b);
+        if (b.length) list.push_back(b);
         pos += 2 + b.length;
     }
 }
@@ -145,7 +149,7 @@ bool sendByte(uint8_t v) {
 }
 
 bool playBlock(uint8_t flag, uint32_t len) {
-    uint32_t pilots = flag < 0x80 ? PILOT_HEADER : PILOT_DATA;
+    uint32_t pilots = flag < 0x80 && !settings.shortPilot ? PILOT_HEADER : PILOT_DATA;
     for (uint32_t i = 0; i < pilots; i++)
         if (!pulse(T_PILOT)) return false;
     if (!pulse(T_SYNC1) || !pulse(T_SYNC2)) return false;
@@ -154,13 +158,13 @@ bool playBlock(uint8_t flag, uint32_t len) {
         int b = nextByte();
         if (b < 0 || !sendByte(b)) return false;
     }
-    return blockPause(BLOCK_PAUSE_MS);
+    return true;
 }
 
 void runTape() {
     level = true;
     if (!holdLow(LEAD_IN_MS)) return;
-    for (int32_t n = 0;;) {
+    for (int32_t n = firstBlock;;) {
         int lo = nextByte();
         if (lo < 0) return;
         int hi = nextByte();
@@ -170,25 +174,42 @@ void runTape() {
         int flag = nextByte();
         if (flag < 0) return;
         curBlock = n++;
-        if (!playBlock(flag, len)) return;
+        inBlock = true;
+        bool ok = playBlock(flag, len);
+        inBlock = false;
+        if (!ok || !blockPause(blockGapMs())) return;
+        if (flag >= 0x80 && settings.stopAfterData) paused = true;
     }
 }
 
 }  // namespace
 
-bool open(const char* path) {
+bool scan(const char* path, std::vector<TapBlock>& out) {
+    File f = FatFS.open(path, "r");
+    if (!f) return false;
+    scanBlocks(f, out);
+    f.close();
+    return true;
+}
+
+bool open(const char* path, int startBlock) {
+    String p = path;  // path may point into openPath
     stop();
-    file = FatFS.open(path, "r");
+    file = FatFS.open(p, "r");
     if (!file) return false;
+    openPath = p;
     size = file.size();
-    scanBlocks();
-    file.seek(0);
+    scanBlocks(file, blockList);
+    if (startBlock < 0 || startBlock >= (int)blockList.size()) startBlock = 0;
+    uint32_t start = blockList.empty() ? 0 : blockList[startBlock].offset;
+    file.seek(start);
 
     ring.reset();
     eof = false;
     paused = false;
     stopReq = false;
-    consumed = 0;
+    consumed = start;
+    firstBlock = startBlock;
     curBlock = -1;
     finished = false;
     isOpen = true;
@@ -198,8 +219,20 @@ bool open(const char* path) {
     return true;
 }
 
+bool seek(int block) {
+    if (openPath.isEmpty()) return false;
+    return open(openPath.c_str(), block);
+}
+
 void togglePause() {
-    if (isOpen) paused = !paused;
+    if (!isOpen) return;
+    if (paused && inBlock) {
+        // Part of this block has already been sent; the Spectrum would reject
+        // the rest, so start the block again from its pilot tone.
+        seek(curBlock);
+        return;
+    }
+    paused = !paused;
 }
 
 void stop() {
@@ -262,6 +295,7 @@ void engineLoop() {
     }
     tape_out::abort();
     curBlock = -1;
+    inBlock = false;
     __dmb();
     running = false;
 }

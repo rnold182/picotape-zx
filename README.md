@@ -56,12 +56,24 @@ On first boot the 1.5 MB storage area is formatted automatically.
 
 ## Controls
 
+The list shows `[Record]` at the top, then your files, then `[USB drive]` and `[Settings]`.
+Turning past either end wraps around.
+
 | Where | Turn | Click | Hold / Back button |
 |---|---|---|---|
-| File list | move | play file / `[Record]` / `[USB drive]` | – |
-| Playing | – | pause / resume (back to list when done) | stop, back to list |
+| File list | move | play file / open item | file menu (on a file) |
+| File menu | move | **Play**, **Blocks** (pick a block to start from), **Delete** (asks first) | back |
+| Playing | choose a block to jump to | pause / resume, or jump to the chosen block | cancel the jump / stop |
 | Recording | – | stop and **save** | stop and **discard** |
+| Settings | move | change the value | save and exit |
 | USB drive | – | – | cancel (before the PC mounts it) |
+
+**Resuming in the middle of a block** restarts that block from its pilot tone, because the
+Spectrum would reject a half-played block anyway. Pausing between blocks resumes normally.
+
+**Multi-load games:** turn on *Stop after data*. The tape then pauses after every data block,
+like pressing STOP on a real deck. Click to continue when the game asks for the next part,
+or turn the knob to rewind to an earlier block.
 
 **USB drive:** pick `[USB drive]`, wait for the drive to appear on your PC, and copy `.TAP`
 files to its root. Then **eject** the drive on the PC to get back to the deck. The drive is
@@ -79,6 +91,24 @@ When the Spectrum is done, click to save. The file is named from the first heade
 `ERR` is still saved, but you should record it again.
 
 LED: green = playing, amber = paused, red = recording, blue = USB.
+
+## Settings
+
+Changes take effect immediately and are saved to `settings.txt` when you leave the screen.
+That file is plain `key=value` text, so you can also edit it from the PC over USB.
+
+| Setting | Choices | What it does |
+|---|---|---|
+| Block gap | 0.5s / **1s** / 2s | Silence between blocks. 0.5 s loads a little faster. |
+| Header pilot | **full** / short | Short uses the 2 s data pilot for headers too, saving ~3 s per header. |
+| Stop after data | **off** / on | Pause after each data block, for multi-load games. |
+| Rec auto-save | **off** / 8s | Save a recording automatically after 8 s of silence. |
+| Knob | **normal** / reversed | Direction of the rotary encoder. |
+| Contrast | low / med / high / **max** | OLED brightness. |
+| LED | off / **dim** / bright | Status LED brightness. |
+| Screen off | never / 1min / **5min** / 15min | Blank the OLED when idle. Never while the tape is running; any input wakes it. |
+
+*About* shows the firmware version and the free space.
 
 ## How playback works
 
@@ -115,12 +145,13 @@ Then `decoder_test --synth`, or `decoder_test file.wav [volts_pp] [offset_v] [ou
 1. ✅ Display, encoder, file list, USB drive
 2. ✅ TAP playback (PIO)
 3. ✅ Recording: ADC + DMA on GP26, pulse decoder, checksum check, naming from the header
-4. ⬜ Polish: block skip/seek, a settings screen, deleting files on the device
+4. ✅ Polish: block seek, file menu (block list, delete), settings screen, screen blanking
 5. ⬜ Maybe: TZX support (turbo and custom loaders), subfolders
 
 ## Troubleshooting
 
-- **Cursor moves the wrong way, or 2 places per click:** change `REVERSE` or
+- **Cursor moves the wrong way:** set *Knob* to *reversed* in Settings.
+- **Cursor moves 2 places per click, or needs 2 clicks per step:** change
   `COUNTS_PER_DETENT` in `src/input.cpp`.
 - **LED shows the wrong colour:** change `NEO_GRB` to `NEO_RGB` in `src/main.cpp`.
 - **Recording shows "Waiting for SAVE..." and the level bar stays near the tick mark:**

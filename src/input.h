@@ -7,8 +7,12 @@ public:
     void begin(uint pinA, uint pinB);
     // Detents turned since the last call (positive = clockwise).
     int takeSteps();
+    void setReversed(bool r) { reversed_ = r; }
     // Raw quadrature transitions counted so far (for the test screen).
     int32_t rawCount();
+
+private:
+    bool reversed_ = false;
 };
 
 // Debounced active-low push button with click / long-press events.
